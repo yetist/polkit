@@ -129,21 +129,6 @@ AC_DEFINE([GLIB_VERSION_MIN_REQUIRED], [GLIB_VERSION_2_30],
 AC_DEFINE([GLIB_VERSION_MAX_ALLOWED], [G_ENCODE_VERSION(2,34)],
         [Notify us when we'll need to transition away from g_type_init()])
 
-AC_ARG_WITH(mozjs, AS_HELP_STRING([--with-mozjs=@<:@mozjs185/mozjs-17.0|auto@:>@],
-		                  [Specify version of Spidermonkey to use]),,
-            with_mozjs=auto)
-AS_IF([test x${with_mozjs} != xauto], [
-  PKG_CHECK_MODULES(LIBJS, ${with_mozjs})
-], [
-  PKG_CHECK_MODULES(LIBJS, [mozjs185], have_mozjs185=yes, have_mozjs185=no)
-  AS_IF([test x${have_mozjs185} = xno], [
-  PKG_CHECK_MODULES(LIBJS, [mozjs-17.0], have_mozjs17=yes,
-   [AC_MSG_ERROR([Could not find mozjs185 or mozjs-17.0; see http://ftp.mozilla.org/pub/mozilla.org/js/])])
-  ])
-])
-AC_SUBST(LIBJS_CFLAGS)
-AC_SUBST(LIBJS_LIBS)
-
 EXPAT_LIB=""
 AC_ARG_WITH(expat, [  --with-expat=<dir>      Use expat from here],
                       [
@@ -163,6 +148,32 @@ AC_CHECK_FUNCS(clearenv fdatasync)
 if test "x$GCC" = "xyes"; then
   LDFLAGS="-Wl,--as-needed $LDFLAGS"
 fi
+
+dnl ---------------------------------------------------------------------------
+dnl - Check javascript backend
+dnl ---------------------------------------------------------------------------
+AC_ARG_WITH(mozjs, AS_HELP_STRING([--with-mozjs=@<:@mozjs185/mozjs-17.0|auto@:>@],
+                                 [Specify version of Spidermonkey to use]),,
+            with_mozjs=auto)
+AC_ARG_WITH(duktape, AS_HELP_STRING([--with-duktape],[Use Duktape as javascript backend]),with_duktape=yes,with_duktape=no)
+AS_IF([test x${with_duktape} == xyes], [
+  PKG_CHECK_MODULES(LIBJS, [duktape >= 2.0.0 ])
+  AC_SUBST(LIBJS_CFLAGS)
+  AC_SUBST(LIBJS_LIBS)
+], [
+  AS_IF([test x${with_mozjs} != xauto], [
+    PKG_CHECK_MODULES(LIBJS, ${with_mozjs})
+  ], [
+    PKG_CHECK_MODULES(LIBJS, [mozjs185], have_mozjs185=yes, have_mozjs185=no)
+    AS_IF([test x${have_mozjs185} = xno], [
+    PKG_CHECK_MODULES(LIBJS, [mozjs-17.0], have_mozjs17=yes,
+     [AC_MSG_ERROR([Could not find mozjs185 or mozjs-17.0; see http://ftp.mozilla.org/pub/mozilla.org/js/])])
+    ])
+  ])
+  AC_SUBST(LIBJS_CFLAGS)
+  AC_SUBST(LIBJS_LIBS)
+])
+AM_CONDITIONAL(USE_DUKTAPE, [test x$with_duktape == xyes], [Using duktape as javascript engine library])
 
 dnl ---------------------------------------------------------------------------
 dnl - Check whether setnetgrent has a return value
@@ -581,6 +592,13 @@ echo "
         PAM support:                ${have_pam}
         systemdsystemunitdir:       ${systemdsystemunitdir}
         polkitd user:               ${POLKITD_USER}"
+if test "x${with_duktape}" = xyes; then
+echo "
+        Javascript engine:          DukTape"
+else
+echo "
+        Javascript engine:          Mozjs"
+fi
 
 if test "$have_pam" = yes ; then
 echo "
