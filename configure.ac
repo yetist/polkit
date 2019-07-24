@@ -79,11 +79,22 @@ PKG_CHECK_MODULES(GLIB, [gmodule-2.0 gio-unix-2.0 >= 2.30.0])
 AC_SUBST(GLIB_CFLAGS)
 AC_SUBST(GLIB_LIBS)
 
-PKG_CHECK_MODULES(LIBJS, [mozjs-52])
+dnl ---------------------------------------------------------------------------
+dnl - Check javascript backend
+dnl ---------------------------------------------------------------------------
+AC_ARG_WITH(duktape, AS_HELP_STRING([--with-duktape],[Use Duktape as javascript backend]),with_duktape=yes,with_duktape=no)
+AS_IF([test x${with_duktape} == xyes], [
+  PKG_CHECK_MODULES(LIBJS, [duktape >= 2.0.0 ])
+  AC_SUBST(LIBJS_CFLAGS)
+  AC_SUBST(LIBJS_LIBS)
+], [
+  PKG_CHECK_MODULES(LIBJS, [mozjs-52])
 
-AC_SUBST(LIBJS_CFLAGS)
-AC_SUBST(LIBJS_CXXFLAGS)
-AC_SUBST(LIBJS_LIBS)
+  AC_SUBST(LIBJS_CFLAGS)
+  AC_SUBST(LIBJS_CXXFLAGS)
+  AC_SUBST(LIBJS_LIBS)
+])
+AM_CONDITIONAL(USE_DUKTAPE, [test x$with_duktape == xyes], [Using duktape as javascript engine library])
 
 EXPAT_LIB=""
 AC_ARG_WITH(expat, [  --with-expat=<dir>      Use expat from here],
@@ -580,6 +591,13 @@ echo "
         PAM support:                ${have_pam}
         systemdsystemunitdir:       ${systemdsystemunitdir}
         polkitd user:               ${POLKITD_USER}"
+if test "x${with_duktape}" = xyes; then
+echo "
+        Javascript engine:          Duktape"
+else
+echo "
+        Javascript engine:          Mozjs"
+fi
 
 if test "$have_pam" = yes ; then
 echo "
