@@ -50,16 +50,17 @@ libpolkit_backend_1_la_CFLAGS =                                        	\
         -D_POLKIT_COMPILATION                                  		\
         -D_POLKIT_BACKEND_COMPILATION                                  	\
         $(GLIB_CFLAGS)							\
+        $(DUKTAPE_CFLAGS)						\
 	$(LIBSYSTEMD_CFLAGS)						\
-	$(LIBJS_CFLAGS)							\
         $(NULL)
 
 libpolkit_backend_1_la_LIBADD =                               		\
         $(GLIB_LIBS)							\
+        $(DUKTAPE_LIBS)							\
 	$(LIBSYSTEMD_LIBS)						\
 	$(top_builddir)/src/polkit/libpolkit-gobject-1.la		\
 	$(EXPAT_LIBS)							\
-	$(LIBJS_LIBS)							\
+	-lm								\
         $(NULL)
 
 rulesdir = $(sysconfdir)/polkit-1/rules.d
