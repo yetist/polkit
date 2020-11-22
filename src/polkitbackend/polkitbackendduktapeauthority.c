@@ -69,7 +69,6 @@ struct _PolkitBackendJsAuthorityPrivate
   duk_context *cx;
 };
 
-#define WATCHDOG_TIMEOUT (15 * G_TIME_SPAN_SECOND)
 
 static void utils_spawn (const gchar *const  *argv,
                          guint                timeout_seconds,
