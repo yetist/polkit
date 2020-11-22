@@ -915,8 +915,8 @@ spawn_cb (GObject       *source_object,
           GAsyncResult  *res,
           gpointer       user_data)
 {
-  SpawnData *data = user_data;
-  data->res = g_object_ref (res);
+  SpawnData *data = (SpawnData *)user_data;
+  data->res = (GAsyncResult*)g_object_ref (res);
   g_main_loop_quit (data->loop);
 }
 
@@ -1292,12 +1292,12 @@ utils_spawn (const gchar *const  *argv,
   data->simple = g_simple_async_result_new (NULL,
                                             callback,
                                             user_data,
-                                            utils_spawn);
+                                            (gpointer*)utils_spawn);
   data->main_context = g_main_context_get_thread_default ();
   if (data->main_context != NULL)
     g_main_context_ref (data->main_context);
 
-  data->cancellable = cancellable != NULL ? g_object_ref (cancellable) : NULL;
+  data->cancellable = cancellable != NULL ? (GCancellable*)g_object_ref (cancellable) : NULL;
 
   data->child_stdout = g_string_new (NULL);
   data->child_stderr = g_string_new (NULL);
@@ -1397,7 +1397,7 @@ utils_spawn_finish (GAsyncResult   *res,
   if (g_simple_async_result_propagate_error (simple, error))
     goto out;
 
-  data = g_simple_async_result_get_op_res_gpointer (simple);
+  data = (UtilsSpawnData*)g_simple_async_result_get_op_res_gpointer (simple);
 
   if (data->timed_out)
     {
