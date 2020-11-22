@@ -795,11 +795,11 @@ polkit_backend_js_authority_check_authorization_sync (PolkitBackendInteractiveAu
   gboolean good = FALSE;
   duk_context *cx = authority->priv->cx;
 
+  duk_set_top (cx, 0);
   if (!duk_get_global_string (cx, "polkit")) {
       goto out;
   }
 
-  duk_set_top (cx, 0);
   duk_push_string (cx, "_runRules");
 
   if (!push_action_and_details (cx, action_id, details, &error))
