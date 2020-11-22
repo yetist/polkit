@@ -125,6 +125,18 @@ G_DEFINE_TYPE (PolkitBackendJsAuthority, polkit_backend_js_authority, POLKIT_BAC
 
 /* ---------------------------------------------------------------------------------------------------- */
 
+static duk_ret_t js_polkit_log (duk_context *cx);
+static duk_ret_t js_polkit_spawn (duk_context *cx);
+static duk_ret_t js_polkit_user_is_in_netgroup (duk_context *cx);
+
+static const duk_function_list_entry js_polkit_functions[] =
+{
+  { "log", js_polkit_log, 1 },
+  { "spawn", js_polkit_spawn, 1 },
+  { "_userIsInNetGroup", js_polkit_user_is_in_netgroup, 2 },
+  { NULL, NULL, 0 },
+};
+
 static void
 polkit_backend_js_authority_init (PolkitBackendJsAuthority *authority)
 {
@@ -346,18 +358,6 @@ setup_file_monitors (PolkitBackendJsAuthority *authority)
   g_ptr_array_add (p, NULL);
   authority->priv->dir_monitors = (GFileMonitor**) g_ptr_array_free (p, FALSE);
 }
-
-static duk_ret_t js_polkit_log (duk_context *cx);
-static duk_ret_t js_polkit_spawn (duk_context *cx);
-static duk_ret_t js_polkit_user_is_in_netgroup (duk_context *cx);
-
-static const duk_function_list_entry js_polkit_functions[] =
-{
-  { "log", js_polkit_log, 1 },
-  { "spawn", js_polkit_spawn, 1 },
-  { "_userIsInNetGroup", js_polkit_user_is_in_netgroup, 2 },
-  { NULL, NULL, 0 },
-};
 
 static void
 polkit_backend_js_authority_constructed (GObject *object)
