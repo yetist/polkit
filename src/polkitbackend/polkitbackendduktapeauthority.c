@@ -1191,7 +1191,7 @@ static void
 utils_on_cancelled (GCancellable *cancellable,
                     gpointer      user_data)
 {
-  UtilsSpawnData *data = user_data;
+  UtilsSpawnData *data = (UtilsSpawnData *)user_data;
   GError *error;
 
   error = NULL;
@@ -1206,7 +1206,7 @@ utils_read_child_stderr (GIOChannel *channel,
                          GIOCondition condition,
                          gpointer user_data)
 {
-  UtilsSpawnData *data = user_data;
+  UtilsSpawnData *data = (UtilsSpawnData *)user_data;
   gchar buf[1024];
   gsize bytes_read;
 
@@ -1220,7 +1220,7 @@ utils_read_child_stdout (GIOChannel *channel,
                          GIOCondition condition,
                          gpointer user_data)
 {
-  UtilsSpawnData *data = user_data;
+  UtilsSpawnData *data = (UtilsSpawnData *)user_data;
   gchar buf[1024];
   gsize bytes_read;
 
@@ -1234,7 +1234,7 @@ utils_child_watch_cb (GPid     pid,
                       gint     status,
                       gpointer user_data)
 {
-  UtilsSpawnData *data = user_data;
+  UtilsSpawnData *data = (UtilsSpawnData *)user_data;
   gchar *buf;
   gsize buf_size;
 
@@ -1263,7 +1263,7 @@ utils_child_watch_cb (GPid     pid,
 static gboolean
 utils_timeout_cb (gpointer user_data)
 {
-  UtilsSpawnData *data = user_data;
+  UtilsSpawnData *data = (UtilsSpawnData *)user_data;
 
   data->timed_out = TRUE;
 
