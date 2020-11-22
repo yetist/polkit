@@ -656,7 +656,10 @@ push_action_and_details (duk_context               *cx,
   gchar **keys;
   guint n;
 
-  duk_get_global_string (cx, "Action");
+  if (!duk_get_global_string (cx, "Action")) {
+    return FALSE;
+  }
+
   duk_new (cx, 0);
 
   set_property_str (cx, "id", action_id);
@@ -699,7 +702,12 @@ polkit_backend_js_authority_get_admin_auth_identities (PolkitBackendInteractiveA
   duk_context *cx = authority->priv->cx;
 
   duk_set_top (cx, 0);
-  duk_get_global_string (cx, "polkit");
+  if (!duk_get_global_string (cx, "polkit")) {
+      polkit_backend_authority_log (POLKIT_BACKEND_AUTHORITY (authority),
+                                    "Error deleting old rules, not loading new ones");
+      goto out;
+  }
+
   duk_push_string (cx, "_runAdminRules");
 
   if (!push_action_and_details (cx, action_id, details, &error))
