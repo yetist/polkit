@@ -249,7 +249,11 @@ reload_scripts (PolkitBackendJsAuthority *authority)
   duk_context *cx = authority->priv->cx;
 
   duk_set_top (cx, 0);
-  duk_get_global_string (cx, "polkit");
+  if (!duk_get_global_string (cx, "polkit")) {
+      polkit_backend_authority_log (POLKIT_BACKEND_AUTHORITY (authority),
+                                    "Error deleting old rules, not loading new ones");
+      return;
+  }
   duk_push_string (cx, "_deleteRules");
 
   duk_call_prop (cx, 0, 0);
