@@ -843,7 +843,8 @@ polkit_backend_js_authority_check_authorization_sync (PolkitBackendInteractiveAu
  out:
   if (!good)
     ret = POLKIT_IMPLICIT_AUTHORIZATION_NOT_AUTHORIZED;
-  g_free (ret_str);
+  if (ret_str != NULL)
+      g_free (ret_str);
 
   return ret;
 }
