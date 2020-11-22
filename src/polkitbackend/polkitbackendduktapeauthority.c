@@ -67,6 +67,13 @@ struct _PolkitBackendJsAuthorityPrivate
   gchar **rules_dirs;
   GFileMonitor **dir_monitors; /* NULL-terminated array of GFileMonitor instances */
   duk_context *cx;
+
+  GThread *runaway_killer_thread;
+  GMainContext *rkt_context;
+  GMainLoop *rkt_loop;
+  GSource *rkt_source;
+  GMutex rkt_timeout_pending_mutex;
+  gboolean rkt_timeout_pending;
 };
 
 
@@ -98,6 +105,8 @@ enum
 
 /* ---------------------------------------------------------------------------------------------------- */
 
+static gpointer runaway_killer_thread_func (gpointer user_data);
+static void runaway_killer_terminate (PolkitBackendJsAuthority *authority);
 static GList *polkit_backend_js_authority_get_admin_auth_identities (PolkitBackendInteractiveAuthority *authority,
                                                                      PolkitSubject                     *caller,
                                                                      PolkitSubject                     *subject,
@@ -384,10 +393,19 @@ polkit_backend_js_authority_constructed (GObject *object)
       authority->priv->rules_dirs[1] = g_strdup (PACKAGE_DATA_DIR "/polkit-1/rules.d");
     }
 
+    authority->priv->rkt_context = g_main_context_new ();
+    authority->priv->rkt_loop = g_main_loop_new (authority->priv->rkt_context, FALSE);
+    g_mutex_init (&authority->priv->rkt_timeout_pending_mutex);
+
+    authority->priv->runaway_killer_thread = g_thread_new ("runaway-killer-thread",
+                                                           runaway_killer_thread_func,
+                                                           authority);
+
   setup_file_monitors (authority);
   load_scripts (authority);
 
   G_OBJECT_CLASS (polkit_backend_js_authority_parent_class)->constructed (object);
+
   return;
 
  fail:
@@ -400,6 +418,12 @@ polkit_backend_js_authority_finalize (GObject *object)
 {
   PolkitBackendJsAuthority *authority = POLKIT_BACKEND_JS_AUTHORITY (object);
   guint n;
+
+  runaway_killer_terminate (authority);
+
+  g_mutex_clear (&authority->priv->rkt_timeout_pending_mutex);
+  g_main_loop_unref (authority->priv->rkt_loop);
+  g_main_context_unref (authority->priv->rkt_context);
 
   for (n = 0; authority->priv->dir_monitors != NULL && authority->priv->dir_monitors[n] != NULL; n++)
     {
@@ -687,8 +711,48 @@ push_action_and_details (duk_context               *cx,
 
 /* ---------------------------------------------------------------------------------------------------- */
 
-/* ---------------------------------------------------------------------------------------------------- */
+static gpointer
+runaway_killer_thread_func (gpointer user_data)
+{
+  PolkitBackendJsAuthority *authority = POLKIT_BACKEND_JS_AUTHORITY (user_data);
 
+  g_main_context_push_thread_default (authority->priv->rkt_context);
+  g_main_loop_run (authority->priv->rkt_loop);
+  g_main_context_pop_thread_default (authority->priv->rkt_context);
+  return NULL;
+}
+
+static gboolean
+runaway_killer_call_g_main_quit (gpointer user_data)
+{
+  PolkitBackendJsAuthority *authority = POLKIT_BACKEND_JS_AUTHORITY (user_data);
+  g_main_loop_quit (authority->priv->rkt_loop);
+  return G_SOURCE_REMOVE;
+}
+
+static void
+runaway_killer_terminate (PolkitBackendJsAuthority *authority)
+{
+  GSource *source;
+
+  /* Use a g_idle_source_new () to ensure g_main_loop_quit () is called from
+   * inside a running rkt_loop. This prevents a possible race condition, where
+   * we could be calling g_main_loop_quit () on the main thread before
+   * runaway_killer_thread_func () starts its g_main_loop_run () call;
+   * g_main_loop_quit () before g_main_loop_run () does nothing, so in such
+   * a case we would not terminate the thread and become blocked in
+   * g_thread_join () below.
+   */
+  g_assert (authority->priv->rkt_loop != NULL);
+
+  source = g_idle_source_new ();
+  g_source_set_callback (source, runaway_killer_call_g_main_quit, authority,
+			 NULL);
+  g_source_attach (source, authority->priv->rkt_context);
+  g_source_unref (source);
+
+  g_thread_join (authority->priv->runaway_killer_thread);
+}
 static GList *
 polkit_backend_js_authority_get_admin_auth_identities (PolkitBackendInteractiveAuthority *_authority,
                                                        PolkitSubject                     *caller,
@@ -1124,6 +1188,7 @@ utils_spawn_data_free (UtilsSpawnData *data)
                              (GSourceFunc) utils_child_watch_from_release_cb,
                              source,
                              (GDestroyNotify) g_source_destroy);
+      /* attach source to the global default main context */
       g_source_attach (source, data->main_context);
       g_source_unref (source);
       data->child_pid = 0;
