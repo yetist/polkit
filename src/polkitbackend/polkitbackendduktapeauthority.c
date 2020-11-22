@@ -550,7 +550,10 @@ push_subject (duk_context               *cx,
   char *seat_str = NULL;
   char *session_str = NULL;
 
-  duk_get_global_string (cx, "Subject");
+  if (!duk_get_global_string (cx, "Subject")) {
+    return FALSE;
+  }
+
   duk_new (cx, 0);
 
   if (POLKIT_IS_UNIX_PROCESS (subject))
@@ -789,8 +792,11 @@ polkit_backend_js_authority_check_authorization_sync (PolkitBackendInteractiveAu
   gboolean good = FALSE;
   duk_context *cx = authority->priv->cx;
 
+  if (!duk_get_global_string (cx, "polkit")) {
+      goto out;
+  }
+
   duk_set_top (cx, 0);
-  duk_get_global_string (cx, "polkit");
   duk_push_string (cx, "_runRules");
 
   if (!push_action_and_details (cx, action_id, details, &error))
