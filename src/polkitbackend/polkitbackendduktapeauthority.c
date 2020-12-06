@@ -76,9 +76,9 @@ struct _PolkitBackendJsAuthorityPrivate
   gboolean rkt_timeout_pending;
 };
 
-static bool execute_script_with_runaway_killer (PolkitBackendJsAuthority *authority,
-                                    JS::HandleScript                 script,
-                                    JS::MutableHandleValue           rval);
+static duk_ret_t execute_script_with_runaway_killer (PolkitBackendJsAuthority *authority,
+                                                     gchar *buf,
+                                                     gsize len);
 
 static void utils_spawn (const gchar *const  *argv,
                          guint                timeout_seconds,
@@ -110,6 +110,7 @@ enum
 
 static gpointer runaway_killer_thread_func (gpointer user_data);
 static void runaway_killer_terminate (PolkitBackendJsAuthority *authority);
+
 static GList *polkit_backend_js_authority_get_admin_auth_identities (PolkitBackendInteractiveAuthority *authority,
                                                                      PolkitSubject                     *caller,
                                                                      PolkitSubject                     *subject,
@@ -183,6 +184,7 @@ rules_file_name_cmp (const gchar *a,
   return ret;
 }
 
+/* authority->priv->cx must be within a request */
 static void
 load_scripts (PolkitBackendJsAuthority  *authority)
 {
@@ -244,14 +246,20 @@ load_scripts (PolkitBackendJsAuthority  *authority)
         }
 
       g_object_unref (file);
-      if (duk_peval_lstring_noresult(cx, contents,len) != 0)
+      /* evaluate the script */
+      if (execute_script_with_runaway_killer (authority,
+                                              contents,
+                                              len) != 0)
         {
           polkit_backend_authority_log (POLKIT_BACKEND_AUTHORITY (authority),
-                                        "Error compiling script %s: %s",
-                                        filename, duk_safe_to_string (authority->priv->cx, -1));
+                                        "Error executing script %s",
+                                        filename);
           g_free (contents);
           continue;
         }
+
+      //g_print ("Successfully loaded and evaluated script `%s'\n", filename);
+
       g_free (contents);
       num_scripts++;
     }
@@ -717,6 +725,56 @@ runaway_killer_thread_func (gpointer user_data)
   return NULL;
 }
 
+
+
+static gboolean
+rkt_on_timeout (gpointer user_data)
+{
+  PolkitBackendJsAuthority *authority = POLKIT_BACKEND_JS_AUTHORITY (user_data);
+
+  g_mutex_lock (&authority->priv->rkt_timeout_pending_mutex);
+  authority->priv->rkt_timeout_pending = TRUE;
+  g_mutex_unlock (&authority->priv->rkt_timeout_pending_mutex);
+
+  /* Supposedly this is thread-safe... */
+  //JS_RequestInterruptCallback (authority->priv->cx);
+
+  /* keep source around so we keep trying to kill even if the JS bit catches the exception
+   * thrown in js_operation_callback()
+   */
+  return TRUE;
+}
+
+static void
+runaway_killer_setup (PolkitBackendJsAuthority *authority)
+{
+  g_assert (authority->priv->rkt_source == NULL);
+
+  /* set-up timer for runaway scripts, will be executed in runaway_killer_thread */
+  g_mutex_lock (&authority->priv->rkt_timeout_pending_mutex);
+  authority->priv->rkt_timeout_pending = FALSE;
+  g_mutex_unlock (&authority->priv->rkt_timeout_pending_mutex);
+  authority->priv->rkt_source = g_timeout_source_new_seconds (15);
+  g_source_set_callback (authority->priv->rkt_source, rkt_on_timeout, authority, NULL);
+  g_source_attach (authority->priv->rkt_source, authority->priv->rkt_context);
+
+  /* ... rkt_on_timeout() will then poke the JSContext so js_operation_callback() is
+   * called... and from there we throw an exception
+   */
+  //JS_AddInterruptCallback (authority->priv->cx, js_operation_callback);
+  //JS_ResetInterruptCallback (authority->priv->cx, FALSE);
+}
+
+static void
+runaway_killer_teardown (PolkitBackendJsAuthority *authority)
+{
+  //JS_ResetInterruptCallback (authority->priv->cx, TRUE);
+
+  g_source_destroy (authority->priv->rkt_source);
+  g_source_unref (authority->priv->rkt_source);
+  authority->priv->rkt_source = NULL;
+}
+
 static gboolean
 runaway_killer_call_g_main_quit (gpointer user_data)
 {
@@ -748,6 +806,44 @@ runaway_killer_terminate (PolkitBackendJsAuthority *authority)
 
   g_thread_join (authority->priv->runaway_killer_thread);
 }
+
+static duk_int_t
+execute_script_with_runaway_killer (PolkitBackendJsAuthority *authority,
+                                    gchar *buf,
+                                    gsize len)
+{
+  duk_int_t ret;
+
+  runaway_killer_setup (authority);
+  ret = duk_peval_lstring(authority->priv->cx, buf, len);
+  runaway_killer_teardown (authority);
+
+  return ret;
+}
+
+/*
+static bool
+call_js_function_with_runaway_killer (PolkitBackendJsAuthority *authority,
+                                      const char               *function_name,
+                                      const JS::HandleValueArray     &args,
+                                      JS::RootedValue          *rval)
+{
+  bool ret;
+  JS::RootedObject js_polkit(authority->priv->cx, authority->priv->js_polkit->get ());
+
+  runaway_killer_setup (authority);
+  ret = JS_CallFunctionName(authority->priv->cx,
+                            js_polkit,
+                            function_name,
+                            args,
+                            rval);
+  runaway_killer_teardown (authority);
+  return ret;
+}
+*/
+
+/* ---------------------------------------------------------------------------------------------------- */
+
 static GList *
 polkit_backend_js_authority_get_admin_auth_identities (PolkitBackendInteractiveAuthority *_authority,
                                                        PolkitSubject                     *caller,
@@ -784,7 +880,12 @@ polkit_backend_js_authority_get_admin_auth_identities (PolkitBackendInteractiveA
       goto out;
     }
 
-  if (!push_subject (cx, subject, user_for_subject, subject_is_local, subject_is_active, &error))
+  if (!push_subject (cx,
+                     subject,
+                     user_for_subject,
+                     subject_is_local,
+                     subject_is_active,
+                     &error))
     {
       polkit_backend_authority_log (POLKIT_BACKEND_AUTHORITY (authority),
                                     "Error converting subject to JS object: %s",
@@ -814,7 +915,7 @@ polkit_backend_js_authority_get_admin_auth_identities (PolkitBackendInteractiveA
       if (identity == NULL)
         {
           polkit_backend_authority_log (POLKIT_BACKEND_AUTHORITY (authority),
-                                        "Identity `%s' is not valid, ignoring: %s",
+                                        "Identity `%s' is not valid, ignoring (%s)",
                                         identity_str, error->message);
           g_clear_error (&error);
         }
@@ -870,7 +971,12 @@ polkit_backend_js_authority_check_authorization_sync (PolkitBackendInteractiveAu
       goto out;
     }
 
-  if (!push_subject (cx, subject, user_for_subject, subject_is_local, subject_is_active, &error))
+  if (!push_subject (cx,
+                     subject,
+                     user_for_subject,
+                     subject_is_local,
+                     subject_is_active,
+                     &error))
     {
       polkit_backend_authority_log (POLKIT_BACKEND_AUTHORITY (authority),
                                     "Error converting subject to JS object: %s",
