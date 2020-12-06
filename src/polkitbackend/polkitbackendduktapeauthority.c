@@ -66,8 +66,8 @@ struct _PolkitBackendJsAuthorityPrivate
 {
   gchar **rules_dirs;
   GFileMonitor **dir_monitors; /* NULL-terminated array of GFileMonitor instances */
-  duk_context *cx;
 
+  duk_context *cx;
   GThread *runaway_killer_thread;
   GMainContext *rkt_context;
   GMainLoop *rkt_loop;
@@ -76,6 +76,9 @@ struct _PolkitBackendJsAuthorityPrivate
   gboolean rkt_timeout_pending;
 };
 
+static bool execute_script_with_runaway_killer (PolkitBackendJsAuthority *authority,
+                                    JS::HandleScript                 script,
+                                    JS::MutableHandleValue           rval);
 
 static void utils_spawn (const gchar *const  *argv,
                          guint                timeout_seconds,
@@ -228,7 +231,6 @@ load_scripts (PolkitBackendJsAuthority  *authority)
   for (l = files; l != NULL; l = l->next)
     {
       const gchar *filename = (gchar *)l->data;
-#if (DUK_VERSION >= 20000)
       GFile *file = g_file_new_for_path (filename);
       char *contents;
       gsize len;
@@ -243,21 +245,14 @@ load_scripts (PolkitBackendJsAuthority  *authority)
 
       g_object_unref (file);
       if (duk_peval_lstring_noresult(cx, contents,len) != 0)
-#else
-      if (duk_peval_file_noresult (cx, filename) != 0)
-#endif
         {
           polkit_backend_authority_log (POLKIT_BACKEND_AUTHORITY (authority),
                                         "Error compiling script %s: %s",
                                         filename, duk_safe_to_string (authority->priv->cx, -1));
-#if (DUK_VERSION >= 20000)
           g_free (contents);
-#endif
           continue;
         }
-#if (DUK_VERSION >= 20000)
       g_free (contents);
-#endif
       num_scripts++;
     }
 
@@ -990,11 +985,7 @@ spawn_cb (GObject       *source_object,
 static duk_ret_t
 js_polkit_spawn (duk_context *cx)
 {
-#if (DUK_VERSION >= 20000)
   duk_ret_t ret = DUK_RET_ERROR;
-#else
-  duk_ret_t ret = DUK_RET_INTERNAL_ERROR;
-#endif
   gchar *standard_output = NULL;
   gchar *standard_error = NULL;
   gint exit_status;
